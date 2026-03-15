@@ -81,10 +81,7 @@ fn cmd_bsp_init(args: BspInitArgs) -> Result<()> {
         args.profile.as_deref(),
     )?;
     eprintln!("Initialized BSP config:");
-    eprintln!(
-        "  Connection: {}",
-        root.join(".bsp").join("xcraft.json").display()
-    );
+    eprintln!("  Connection: {}", root.join("buildServer.json").display());
     eprintln!(
         "  State:      {} [bsp]",
         state_path(&root, args.profile.as_deref()).display()

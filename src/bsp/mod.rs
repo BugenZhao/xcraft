@@ -14,8 +14,8 @@ use crate::workspace::Workspace;
 pub use config::{BspConfig, derive_build_root};
 
 /// Initialize BSP metadata for the current project root.
-/// This writes both the standard `.bsp/xcraft.json` entrypoint and the
-/// xcraft-specific state under `.xcraft/`.
+/// This writes `buildServer.json` in the workspace root and the xcraft-specific
+/// state under `.xcraft/`.
 pub fn init(
     root: &Path,
     input_ws: &Workspace,

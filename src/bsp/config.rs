@@ -128,10 +128,6 @@ impl BspConfig {
     }
 }
 
-pub fn bsp_dir(root: &Path) -> PathBuf {
-    root.join(".bsp")
-}
-
 /// xcraft-owned BSP artifacts live under `.xcraft/bsp/` so they do not pollute
 /// the standardized `.bsp/` entrypoint directory.
 pub fn bsp_data_dir(root: &Path) -> PathBuf {

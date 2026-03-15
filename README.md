@@ -12,7 +12,7 @@ CLI for building and running Xcode projects from the terminal, aiming to simplif
 - Build, clean, and launch in one command
 - Launch on simulators, physical devices, and macOS
 - Pipe build output through [xcbeautify](https://github.com/cpisciotta/xcbeautify) when available
-- Generate `.bsp/xcraft.json` and serve SourceKit-LSP/BSP metadata for Xcode and Tuist projects
+- Generate root `buildServer.json` and serve SourceKit-LSP/BSP metadata for Xcode and Tuist projects
 - Designed for headless / CI / agent-driven workflows
 
 ## Install
@@ -105,7 +105,8 @@ xcraft bsp sync
 ```
 
 `xcraft bsp init` reuses the selected profile's cached `workspace` and `scheme`, writes
-`.bsp/xcraft.json`, stores BSP-specific state under `[bsp]` in `.xcraft/state[.profile].toml`,
+`buildServer.json` in the workspace root, stores BSP-specific state under `[bsp]` in
+`.xcraft/state[.profile].toml`,
 and then attempts an initial `bsp sync`. That sync is best-effort: if no usable Xcode activity
 log exists yet, initialization still succeeds and a later `xcraft build`, `xcraft launch`, or
 manual `xcraft bsp sync` will populate the compile database.
@@ -115,7 +116,7 @@ the selected profile. That build reuses the cached configuration and destination
 post-build BSP hook will refresh the matching compile database.
 
 `xcraft build` and `xcraft launch` automatically refresh the matching compile database after a
-successful build when BSP has already been initialized for that profile. The active `.bsp/xcraft.json`
+successful build when BSP has already been initialized for that profile. `buildServer.json`
 always points at one profile at a time via `xcraft bsp serve [--profile ...]`.
 
 ## Acknowledgments

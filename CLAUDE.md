@@ -31,7 +31,7 @@ CLI for building and running Xcode projects (`.xcworkspace`, SPM `Package.swift`
   - `workspaces.rs`, `schemes.rs`, `configs.rs`, `destinations.rs` — listing subcommands
 - `src/bsp/` — BSP / SourceKit-LSP integration
   - `config.rs` — `[bsp]` state under `.xcraft/state[.profile].toml`, build root derivation, path layout
-  - `connection.rs` — `.bsp/xcraft.json` writer
+  - `connection.rs` — `buildServer.json` writer
   - `xcactivitylog.rs` — LogStoreManifest lookup + `.xcactivitylog` string extraction
   - `parser.rs` — Swift compile command extraction from Xcode build log sections
   - `compile_db.rs` — persistent Swift compile database + query/filter logic

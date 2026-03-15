@@ -172,6 +172,13 @@ fn handle_build_target_sources(message: &Value, state: Option<&State>) -> Result
                 "generated": false
             }));
         }
+        if let Some(source_packages_dir) = source_packages_checkouts_dir(&state.config) {
+            sources.push(json!({
+                "uri": path_to_directory_uri(&source_packages_dir)?,
+                "kind": 2,
+                "generated": false
+            }));
+        }
         items.push(json!({
             "target": target,
             "sources": sources
@@ -317,4 +324,11 @@ fn tuist_input_source_dir(config: &BspConfig) -> &Path {
     } else {
         input.parent().unwrap_or(input)
     }
+}
+
+fn source_packages_checkouts_dir(config: &BspConfig) -> Option<PathBuf> {
+    let path = Path::new(&config.build_root)
+        .join("SourcePackages")
+        .join("checkouts");
+    path.is_dir().then_some(path)
 }
