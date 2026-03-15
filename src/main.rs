@@ -1,3 +1,4 @@
+mod bsp;
 mod build;
 mod cache;
 mod cmd;
@@ -74,6 +75,12 @@ enum Commands {
         profile: Option<String>,
     },
 
+    /// Manage BSP / SourceKit-LSP integration
+    Bsp {
+        #[command(subcommand)]
+        command: cmd::bsp::BspArgs,
+    },
+
     /// Build the project without launching
     Build(cmd::build::BuildArgs),
 
@@ -95,6 +102,7 @@ fn main() -> Result<()> {
         Commands::Destinations { json } => cmd::cmd_destinations(json),
         Commands::Configure(args) => cmd::cmd_configure(args),
         Commands::Reset { profile } => cmd::cmd_reset(profile),
+        Commands::Bsp { command } => cmd::cmd_bsp(command),
         Commands::Build(args) => cmd::cmd_build(args),
         Commands::Clean(args) => cmd::cmd_clean(args),
         Commands::Launch(args) => cmd::cmd_launch(args),

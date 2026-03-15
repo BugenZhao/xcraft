@@ -1,3 +1,4 @@
+pub mod bsp;
 pub mod build;
 pub mod clean;
 mod configs;
@@ -8,6 +9,7 @@ mod reset;
 mod schemes;
 mod workspaces;
 
+pub use bsp::cmd_bsp;
 pub use build::cmd_build;
 pub use clean::cmd_clean;
 pub use configs::cmd_configs;

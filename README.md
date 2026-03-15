@@ -12,6 +12,7 @@ CLI for building and running Xcode projects from the terminal, aiming to simplif
 - Build, clean, and launch in one command
 - Launch on simulators, physical devices, and macOS
 - Pipe build output through [xcbeautify](https://github.com/cpisciotta/xcbeautify) when available
+- Generate `.bsp/xcraft.json` and serve SourceKit-LSP/BSP metadata for Xcode and Tuist projects
 - Designed for headless / CI / agent-driven workflows
 
 ## Install
@@ -54,6 +55,12 @@ xcraft destinations
 
 # Clear cached selections
 xcraft reset
+
+# Initialize BSP / SourceKit-LSP integration for an Xcode or Tuist project
+xcraft bsp init
+
+# Refresh compile metadata from the latest Xcode build log
+xcraft bsp sync
 ```
 
 All resolve options (workspace, scheme, configuration, destination) are cached in `.xcraft/state.toml` so you only need to select them once. Use `xcraft configure` to re-select, or `xcraft reset` to clear.
@@ -78,6 +85,25 @@ xcraft reset --profile sim
 ```
 
 Without `--profile`, the default `.xcraft/state.toml` is used as before.
+
+### BSP / SourceKit-LSP
+
+For Xcode and Tuist projects, `xcraft` can generate a standard BSP connection file and serve
+Swift compile metadata to `sourcekit-lsp`.
+
+```sh
+# Create .bsp/xcraft.json and .xcraft/bsp.toml
+xcraft bsp init --workspace MyApp.xcworkspace --scheme MyApp
+
+# Or initialize from a Tuist project
+xcraft bsp init --workspace Project.swift --scheme MyApp
+
+# Refresh compile metadata after building in Xcode
+xcraft bsp sync
+```
+
+`xcraft build` and `xcraft launch` automatically refresh `.xcraft/bsp/compile-db.json` after a
+successful build when BSP has already been initialized.
 
 ## Acknowledgments
 

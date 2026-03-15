@@ -2,10 +2,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Result, bail};
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 /// The type of Xcode workspace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum WorkspaceType {
     Xcode,
     Spm,
@@ -28,7 +30,16 @@ impl Workspace {
     /// For SPM projects, returns the directory containing Package.swift.
     /// For Xcode projects, returns the parent directory of the .xcworkspace.
     pub fn working_dir(&self) -> &Path {
-        self.path.parent().unwrap_or(&self.path)
+        match self.ws_type {
+            WorkspaceType::Xcode => self.path.parent().unwrap_or(&self.path),
+            WorkspaceType::Spm | WorkspaceType::Tuist => {
+                if self.path.is_dir() {
+                    &self.path
+                } else {
+                    self.path.parent().unwrap_or(&self.path)
+                }
+            }
+        }
     }
 
     /// For Tuist workspaces, run `tuist generate` and return the generated Xcode workspace.
@@ -58,10 +69,14 @@ impl std::fmt::Display for Workspace {
 }
 
 fn detect_type(path: &Path) -> WorkspaceType {
-    if path.file_name().is_some_and(|n| n == "Package.swift") {
-        WorkspaceType::Spm
-    } else if path.file_name().is_some_and(|n| n == "Project.swift") {
+    if path.is_dir() && path.join("Project.swift").exists()
+        || path.file_name().is_some_and(|n| n == "Project.swift")
+    {
         WorkspaceType::Tuist
+    } else if path.is_dir() && path.join("Package.swift").exists()
+        || path.file_name().is_some_and(|n| n == "Package.swift")
+    {
+        WorkspaceType::Spm
     } else {
         WorkspaceType::Xcode
     }

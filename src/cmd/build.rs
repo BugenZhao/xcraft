@@ -5,7 +5,7 @@ use clap::Parser;
 
 use crate::destination::Destination;
 use crate::workspace::Workspace;
-use crate::{build, cache, destination, scheme, workspace};
+use crate::{bsp, build, cache, destination, scheme, workspace};
 
 /// Shared options for resolving workspace, scheme, configuration, and destination.
 #[derive(Parser)]
@@ -80,6 +80,7 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
 }
 
 pub struct ResolvedBuild {
+    pub input_ws: Workspace,
     /// The workspace to use for xcodebuild operations (same as original for Xcode/SPM,
     /// the generated .xcworkspace for Tuist).
     pub effective_ws: Workspace,
@@ -165,6 +166,7 @@ pub fn resolve_and_cache(args: &ResolveArgs, configure: bool) -> Result<Resolved
     }
 
     Ok(ResolvedBuild {
+        input_ws: ws,
         effective_ws,
         scheme_name,
         config,
@@ -174,6 +176,7 @@ pub fn resolve_and_cache(args: &ResolveArgs, configure: bool) -> Result<Resolved
 
 /// Resolve inputs, build, and return the resolved state.
 pub fn resolve_and_build(args: &BuildArgs) -> Result<ResolvedBuild> {
+    let cache_root = cache::CachedState::root()?;
     let resolved = resolve_and_cache(&args.action.resolve, args.action.configure)?;
 
     let dest_raw = resolved.dest.xcodebuild_destination_string();
@@ -191,6 +194,11 @@ pub fn resolve_and_build(args: &BuildArgs) -> Result<ResolvedBuild> {
         extra_env: &args.build_env,
     };
     build::build(&build_opts)?;
+    if let Err(err) =
+        bsp::maybe_sync_after_build(&cache_root, &resolved.input_ws, &resolved.scheme_name)
+    {
+        eprintln!("Warning: failed to sync BSP compile metadata: {err}");
+    }
 
     Ok(resolved)
 }
