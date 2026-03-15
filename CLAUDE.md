@@ -30,7 +30,7 @@ CLI for building and running Xcode projects (`.xcworkspace`, SPM `Package.swift`
   - `launch.rs` — `launch` subcommand (flattens `BuildArgs`, adds launch-specific options)
   - `workspaces.rs`, `schemes.rs`, `configs.rs`, `destinations.rs` — listing subcommands
 - `src/bsp/` — BSP / SourceKit-LSP integration
-  - `config.rs` — `.xcraft/bsp.toml`, build root derivation, path layout
+  - `config.rs` — `[bsp]` state under `.xcraft/state[.profile].toml`, build root derivation, path layout
   - `connection.rs` — `.bsp/xcraft.json` writer
   - `xcactivitylog.rs` — LogStoreManifest lookup + `.xcactivitylog` string extraction
   - `parser.rs` — Swift compile command extraction from Xcode build log sections
@@ -41,7 +41,7 @@ CLI for building and running Xcode projects (`.xcworkspace`, SPM `Package.swift`
 - `src/destination.rs` — destination listing (simulators via `simctl`, physical devices via `devicectl`, macOS)
 - `src/build.rs` — `xcodebuild build` / `xcodebuild clean` execution + build settings extraction + optional xcbeautify pipe
 - `src/launch.rs` — app launch by destination type (macOS direct exec, simulator simctl install/launch, device devicectl install/launch)
-- `src/cache.rs` — persistent cache (`CachedState`) for last-used workspace/scheme/configuration/destination, stored in `.xcraft/state.toml`; BSP state is stored separately in `.xcraft/bsp.toml` and `.xcraft/bsp/compile-db.json`
+- `src/cache.rs` — persistent cache (`CachedState`) for last-used workspace/scheme/configuration/destination, stored in `.xcraft/state[.profile].toml`; BSP-specific state lives in the same file under `[bsp]`, and compile metadata is stored in `.xcraft/bsp/compile-db[.profile].json`
 - `src/util.rs` — command execution helpers + fault-tolerant JSON parsing (handles non-JSON prefixes in xcodebuild output)
 - `docs/build-run-launch-flow.md` — detailed flow documentation (Chinese)
 

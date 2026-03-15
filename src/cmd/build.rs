@@ -194,9 +194,12 @@ pub fn resolve_and_build(args: &BuildArgs) -> Result<ResolvedBuild> {
         extra_env: &args.build_env,
     };
     build::build(&build_opts)?;
-    if let Err(err) =
-        bsp::maybe_sync_after_build(&cache_root, &resolved.input_ws, &resolved.scheme_name)
-    {
+    if let Err(err) = bsp::maybe_sync_after_build(
+        &cache_root,
+        args.action.resolve.profile.as_deref(),
+        &resolved.input_ws,
+        &resolved.scheme_name,
+    ) {
         eprintln!("Warning: failed to sync BSP compile metadata: {err}");
     }
 

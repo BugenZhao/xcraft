@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::bsp::config::StoredBspState;
 use crate::destination::Destination;
 
 const CACHE_DIR: &str = ".xcraft";
@@ -21,6 +22,10 @@ pub struct CachedState {
     pub scheme: Option<String>,
     pub configuration: Option<String>,
     pub destination: Option<Destination>,
+    /// BSP-specific state lives under `[bsp]`, while reusing the top-level
+    /// `workspace` and `scheme` fields as the logical project key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bsp: Option<StoredBspState>,
 }
 
 impl CachedState {

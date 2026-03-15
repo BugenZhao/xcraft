@@ -21,16 +21,17 @@ pub fn init(
     input_ws: &Workspace,
     effective_ws: &Workspace,
     scheme: &str,
+    profile: Option<&str>,
 ) -> Result<()> {
     let build_root = derive_build_root(effective_ws, scheme)?;
-    let config = BspConfig::new(root, input_ws, effective_ws, scheme, &build_root);
-    config.save(root)?;
-    connection::write_connection_file(root)?;
+    let config = BspConfig::new(root, input_ws, effective_ws, scheme, &build_root, profile);
+    config.save(root, profile)?;
+    connection::write_connection_file(root, profile)?;
     Ok(())
 }
 
-pub fn sync(root: &Path) -> Result<()> {
-    let config = BspConfig::load(root)?;
+pub fn sync(root: &Path, profile: Option<&str>) -> Result<()> {
+    let config = BspConfig::load(root, profile)?;
     sync_with_config(&config)
 }
 
@@ -72,8 +73,13 @@ pub fn sync_with_config(config: &BspConfig) -> Result<()> {
 }
 
 /// Sync after a successful build when the cached BSP config matches the build inputs.
-pub fn maybe_sync_after_build(root: &Path, input_ws: &Workspace, scheme: &str) -> Result<()> {
-    let Ok(config) = BspConfig::load(root) else {
+pub fn maybe_sync_after_build(
+    root: &Path,
+    profile: Option<&str>,
+    input_ws: &Workspace,
+    scheme: &str,
+) -> Result<()> {
+    let Ok(config) = BspConfig::load(root, profile) else {
         return Ok(());
     };
 

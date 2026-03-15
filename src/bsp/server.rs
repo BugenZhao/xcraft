@@ -13,7 +13,7 @@ use super::config::{BspConfig, index_db_dir};
 const TARGET_URI: &str = "dummy://xcraft";
 
 /// Run the minimal BSP server used by sourcekit-lsp.
-pub fn serve() -> Result<()> {
+pub fn serve(profile: Option<&str>) -> Result<()> {
     let stdin = io::stdin();
     let mut reader = io::BufReader::new(stdin.lock());
     let stdout = io::stdout();
@@ -31,7 +31,7 @@ pub fn serve() -> Result<()> {
             .to_string();
 
         let response = match method.as_str() {
-            "build/initialize" => Some(handle_initialize(&message, &mut state)?),
+            "build/initialize" => Some(handle_initialize(&message, &mut state, profile)?),
             "build/initialized" => None,
             "workspace/buildTargets" => Some(handle_build_targets(&message)),
             "buildTarget/sources" => Some(handle_build_target_sources(&message, state.as_ref())?),
@@ -90,14 +90,18 @@ impl State {
     }
 }
 
-fn handle_initialize(message: &Value, state: &mut Option<State>) -> Result<Value> {
+fn handle_initialize(
+    message: &Value,
+    state: &mut Option<State>,
+    profile: Option<&str>,
+) -> Result<Value> {
     let root_uri = message
         .get("params")
         .and_then(|params| params.get("rootUri"))
         .and_then(Value::as_str)
         .context("missing rootUri in build/initialize")?;
     let root = uri_to_path(root_uri)?;
-    let config = BspConfig::load(&root)?;
+    let config = BspConfig::load(&root, profile)?;
     let index_store_path = config.index_store_path();
     let hash = md5::compute(index_store_path.display().to_string().as_bytes());
     // Match sourcekit-lsp's expectation that one index store maps to one persistent DB path.
@@ -156,12 +160,12 @@ fn handle_build_target_sources(message: &Value, state: Option<&State>) -> Result
             continue;
         }
         let mut sources = vec![json!({
-            "uri": path_to_directory_uri(Path::new(&state.config.workspace_effective))?,
+            "uri": path_to_directory_uri(state.config.effective_workspace())?,
             "kind": 2,
             "generated": false
         })];
         // Tuist sources live next to `Project.swift`, while the effective workspace is generated.
-        if state.config.workspace_kind == crate::workspace::WorkspaceType::Tuist {
+        if state.config.uses_generated_workspace() {
             sources.push(json!({
                 "uri": path_to_directory_uri(tuist_input_source_dir(&state.config))?,
                 "kind": 2,
