@@ -112,17 +112,6 @@ impl BspConfig {
             .join("DataStore")
     }
 
-    pub fn effective_workspace(&self) -> &Path {
-        self.generated_workspace
-            .as_deref()
-            .map(Path::new)
-            .unwrap_or_else(|| Path::new(&self.workspace_input))
-    }
-
-    pub fn uses_generated_workspace(&self) -> bool {
-        self.generated_workspace.is_some()
-    }
-
     pub fn bsp_version() -> &'static str {
         BSP_VERSION
     }

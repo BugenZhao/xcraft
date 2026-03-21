@@ -30,24 +30,24 @@ pub fn serve(profile: Option<&str>) -> Result<()> {
             .unwrap_or_default()
             .to_string();
 
-        let response = match method.as_str() {
-            "build/initialize" => Some(handle_initialize(&message, &mut state, profile)?),
-            "build/initialized" => None,
-            "workspace/buildTargets" => Some(handle_build_targets(&message)),
-            "buildTarget/sources" => Some(handle_build_target_sources(&message, state.as_ref())?),
-            "workspace/waitForBuildSystemUpdates" => Some(ok_response(&message, json!({}))),
+        let responses = match method.as_str() {
+            "build/initialize" => vec![handle_initialize(&message, &mut state, profile)?],
+            "build/initialized" => Vec::new(),
+            "workspace/buildTargets" => vec![handle_build_targets(&message)],
+            "buildTarget/sources" => vec![handle_build_target_sources(&message, state.as_ref())?],
+            "workspace/waitForBuildSystemUpdates" => vec![ok_response(&message, json!({}))],
             "textDocument/registerForChanges" => {
-                Some(handle_register_for_changes(&message, state.as_mut())?)
+                handle_register_for_changes(&message, state.as_mut())?
             }
             "textDocument/sourceKitOptions" => {
-                Some(handle_sourcekit_options(&message, state.as_mut())?)
+                vec![handle_sourcekit_options(&message, state.as_mut())?]
             }
-            "build/shutdown" => Some(ok_response(&message, Value::Null)),
+            "build/shutdown" => vec![ok_response(&message, Value::Null)],
             "exit" => break,
-            _ => unknown_method_response(&message),
+            _ => unknown_method_response(&message).into_iter().collect(),
         };
 
-        if let Some(response) = response {
+        for response in responses {
             write_message(&mut writer, &response)?;
         }
     }
@@ -59,6 +59,7 @@ pub fn serve(profile: Option<&str>) -> Result<()> {
 /// reloads compile metadata from disk when needed instead of trying to mirror the
 /// build system in memory.
 struct State {
+    root: PathBuf,
     config: BspConfig,
     compile_db: Option<CompileDb>,
     compile_db_mtime: Option<std::time::SystemTime>,
@@ -66,9 +67,10 @@ struct State {
 }
 
 impl State {
-    fn new(_root: PathBuf, config: BspConfig) -> Result<Self> {
+    fn new(root: PathBuf, config: BspConfig) -> Result<Self> {
         let (compile_db, compile_db_mtime) = load_compile_db(Path::new(&config.compile_db_path))?;
         Ok(Self {
+            root,
             config,
             compile_db,
             compile_db_mtime,
@@ -160,18 +162,10 @@ fn handle_build_target_sources(message: &Value, state: Option<&State>) -> Result
             continue;
         }
         let mut sources = vec![json!({
-            "uri": path_to_directory_uri(state.config.effective_workspace())?,
+            "uri": path_to_directory_uri(&state.root)?,
             "kind": 2,
             "generated": false
         })];
-        // Tuist sources live next to `Project.swift`, while the effective workspace is generated.
-        if state.config.uses_generated_workspace() {
-            sources.push(json!({
-                "uri": path_to_directory_uri(tuist_input_source_dir(&state.config))?,
-                "kind": 2,
-                "generated": false
-            }));
-        }
         if let Some(source_packages_dir) = source_packages_checkouts_dir(&state.config) {
             sources.push(json!({
                 "uri": path_to_directory_uri(&source_packages_dir)?,
@@ -187,8 +181,9 @@ fn handle_build_target_sources(message: &Value, state: Option<&State>) -> Result
     Ok(ok_response(message, json!({ "items": items })))
 }
 
-fn handle_register_for_changes(message: &Value, state: Option<&mut State>) -> Result<Value> {
+fn handle_register_for_changes(message: &Value, state: Option<&mut State>) -> Result<Vec<Value>> {
     let state = state.context("server not initialized")?;
+    state.maybe_reload_compile_db()?;
     let params = message
         .get("params")
         .and_then(Value::as_object)
@@ -204,16 +199,32 @@ fn handle_register_for_changes(message: &Value, state: Option<&mut State>) -> Re
         .to_string();
     match action {
         "register" => {
-            state.observed_uris.insert(uri);
+            state.observed_uris.insert(uri.clone());
         }
         "unregister" => {
             state.observed_uris.remove(&uri);
         }
         _ => {}
     }
-    // v1 keeps the registration set only for protocol compatibility. It does not emit
-    // `build/sourceKitOptionsChanged` notifications yet.
-    Ok(ok_response(message, Value::Null))
+    let mut responses = vec![ok_response(message, Value::Null)];
+    if action == "register" {
+        if let Ok(path) = uri_to_path(&uri) {
+            if let Some((flags, workdir)) = state
+                .compile_db
+                .as_ref()
+                .and_then(|db| db.query_or_infer(&path))
+            {
+                responses.push(sourcekit_options_changed_notification(
+                    &uri,
+                    json!({
+                        "compilerArguments": flags,
+                        "workingDirectory": workdir
+                    }),
+                ));
+            }
+        }
+    }
+    Ok(responses)
 }
 
 fn handle_sourcekit_options(message: &Value, state: Option<&mut State>) -> Result<Value> {
@@ -229,7 +240,7 @@ fn handle_sourcekit_options(message: &Value, state: Option<&mut State>) -> Resul
     let result = state
         .compile_db
         .as_ref()
-        .and_then(|db| db.query(&path))
+        .and_then(|db| db.query_or_infer(&path))
         .map(|(flags, workdir)| {
             json!({
                 "compilerArguments": flags,
@@ -245,6 +256,17 @@ fn ok_response(message: &Value, result: Value) -> Value {
         "jsonrpc": "2.0",
         "id": message.get("id").cloned().unwrap_or(Value::Null),
         "result": result
+    })
+}
+
+fn sourcekit_options_changed_notification(uri: &str, options: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "build/sourceKitOptionsChanged",
+        "params": {
+            "uri": uri,
+            "updatedOptions": options
+        }
     })
 }
 
@@ -314,16 +336,6 @@ fn path_to_directory_uri(path: &Path) -> Result<String> {
     Url::from_directory_path(path)
         .map_err(|_| anyhow::anyhow!("failed to convert {} to directory uri", path.display()))
         .map(|url| url.to_string())
-}
-
-fn tuist_input_source_dir(config: &BspConfig) -> &Path {
-    // When the input was `Project.swift`, expose its parent directory as a source root.
-    let input = Path::new(&config.workspace_input);
-    if input.is_dir() {
-        input
-    } else {
-        input.parent().unwrap_or(input)
-    }
 }
 
 fn source_packages_checkouts_dir(config: &BspConfig) -> Option<PathBuf> {

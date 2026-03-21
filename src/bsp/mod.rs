@@ -37,21 +37,24 @@ pub fn sync(root: &Path, profile: Option<&str>) -> Result<()> {
 
 /// Refresh the compile database from the newest usable Xcode activity log.
 pub fn sync_with_config(config: &BspConfig) -> Result<()> {
-    let mut db = compile_db::CompileDb::new(Vec::new());
+    let existing_db = compile_db::CompileDb::load_json(Path::new(&config.compile_db_path)).ok();
+    let mut db = existing_db.unwrap_or_else(|| compile_db::CompileDb::new(Vec::new()));
+    let mut parsed_any = false;
     let mut last_error = None;
 
     // Xcode frequently leaves behind truncated or metadata-only activity logs, so
-    // try candidates in order and keep the first one that yields real Swift units.
+    // merge candidates from newest to oldest instead of letting the newest incremental
+    // build erase previously discovered compile units.
     for log_path in
         xcactivitylog::candidate_log_paths(Path::new(&config.build_root), Some(&config.scheme))?
     {
         match xcactivitylog::extract_compile_lines(&log_path) {
             Ok(lines) => match parser::parse_compile_db(&lines) {
                 Ok(parsed) if !parsed.swift_units.is_empty() => {
-                    db = parsed;
-                    break;
+                    db = db.merged_with(parsed);
+                    parsed_any = true;
                 }
-                Ok(parsed) => db = parsed,
+                Ok(_) => {}
                 Err(err) => last_error = Some((log_path, err)),
             },
             Err(err) => {
@@ -60,13 +63,13 @@ pub fn sync_with_config(config: &BspConfig) -> Result<()> {
         }
     }
 
-    if db.swift_units.is_empty()
+    if !parsed_any
+        && db.swift_units.is_empty()
         && let Some((path, err)) = last_error
     {
         return Err(err).with_context(|| format!("failed to parse {}", path.display()));
     }
 
-    // Saving an empty database is acceptable when no Swift compile step has run yet.
     db.save(Path::new(&config.compile_db_path))
         .with_context(|| format!("failed to save compile db to {}", config.compile_db_path))?;
     Ok(())

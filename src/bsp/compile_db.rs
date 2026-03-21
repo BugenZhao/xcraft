@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -47,17 +47,34 @@ impl CompileDb {
             .with_context(|| format!("failed to write {}", path.display()))
     }
 
+    pub fn merged_with(self, newer: Self) -> Self {
+        let mut seen = HashSet::new();
+        let mut swift_units = Vec::new();
+        for unit in self.swift_units.into_iter().chain(newer.swift_units) {
+            let key = unit_identity(&unit);
+            if seen.insert(key) {
+                swift_units.push(unit);
+            }
+        }
+        Self::new(swift_units)
+    }
+
     /// Look up compiler arguments for a source file by expanding any Swift file lists.
+    #[cfg(test)]
     pub fn query(&self, file: &Path) -> Option<(Vec<String>, String)> {
         let map = self.file_index();
         let key = normalize_for_lookup(file, None);
         let entry = map.get(&key)?;
-        let flags = command_to_arguments(entry.command);
-        let workdir = flags
-            .windows(2)
-            .find_map(|window| (window[0] == "-working-directory").then(|| window[1].clone()))
-            .unwrap_or_else(|| entry.directory.to_string());
-        Some((flags, workdir))
+        Some(flags_and_workdir(entry.command, entry.directory))
+    }
+
+    pub fn query_or_infer(&self, file: &Path) -> Option<(Vec<String>, String)> {
+        let map = self.file_index();
+        let key = normalize_for_lookup(file, None);
+        if let Some(entry) = map.get(&key) {
+            return Some(flags_and_workdir(entry.command, entry.directory));
+        }
+        infer_swift_arguments(file, &map)
     }
 
     fn file_index(&self) -> HashMap<String, FileCommand<'_>> {
@@ -96,9 +113,76 @@ impl CompileDb {
     }
 }
 
+fn infer_swift_arguments(
+    file: &Path,
+    map: &HashMap<String, FileCommand<'_>>,
+) -> Option<(Vec<String>, String)> {
+    if file.extension().and_then(|ext| ext.to_str()) != Some("swift") {
+        return None;
+    }
+
+    let normalized = normalize_path(file, None);
+    let normalized_key = normalized.display().to_string().to_lowercase();
+    let mut best_match: Option<(&FileCommand<'_>, usize)> = None;
+    for (candidate, entry) in map {
+        if !candidate.ends_with(".swift") || candidate == &normalized_key {
+            continue;
+        }
+        let score = shared_ancestor_score(candidate, &normalized)?;
+        if best_match.is_none_or(|(_, best)| score > best) {
+            best_match = Some((entry, score));
+        }
+    }
+
+    let (entry, _) = best_match?;
+    let (mut flags, workdir) = flags_and_workdir(entry.command, entry.directory);
+    let normalized_file = normalized.display().to_string();
+    if !flags.iter().any(|arg| arg == &normalized_file) {
+        flags.push(normalized_file);
+    }
+    Some((flags, workdir))
+}
+
+fn shared_ancestor_score(candidate: &str, query: &Path) -> Option<usize> {
+    let parent = query.parent()?;
+    let candidate = candidate.to_lowercase();
+    for ancestor in parent.ancestors() {
+        let ancestor = ancestor.display().to_string().to_lowercase();
+        let same = candidate == ancestor;
+        let child = candidate.starts_with(&(ancestor.clone() + "/"));
+        if same || child {
+            return Some(ancestor.len());
+        }
+    }
+    None
+}
+
+fn flags_and_workdir(command: &str, directory: &str) -> (Vec<String>, String) {
+    let flags = command_to_arguments(command);
+    let workdir = flags
+        .windows(2)
+        .find_map(|window| (window[0] == "-working-directory").then(|| window[1].clone()))
+        .unwrap_or_else(|| directory.to_string());
+    (flags, workdir)
+}
+
 struct FileCommand<'a> {
     command: &'a str,
     directory: &'a str,
+}
+
+fn unit_identity(unit: &SwiftCompileUnit) -> String {
+    let mut files = unit.files.clone();
+    files.sort();
+    let mut file_lists = unit.file_lists.clone();
+    file_lists.sort();
+    format!(
+        "{}\u{0}{}\u{0}{}\u{0}{}",
+        unit.directory,
+        unit.command,
+        files.join("\u{1f}"),
+        file_lists.join("\u{1f}")
+    )
 }
 
 /// Convert a logged compiler command into sourcekit-lsp-friendly arguments.
@@ -178,6 +262,7 @@ fn normalize_for_lookup(path: &Path, base: Option<&Path>) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
     use tempfile::tempdir;
 
@@ -205,4 +290,52 @@ mod tests {
         assert!(!args.contains(&"-emit-localized-strings-path".to_string()));
         assert_eq!(workdir, temp.path().display().to_string());
     }
+
+    #[test]
+    fn merge_keeps_existing_units_when_new_log_is_incremental() {
+        let existing = CompileDb::new(vec![SwiftCompileUnit {
+            directory: "/tmp".into(),
+            command: "/usr/bin/swiftc /tmp/Dep.swift".into(),
+            files: vec!["/tmp/Dep.swift".into()],
+            file_lists: vec![],
+        }]);
+        let incremental = CompileDb::new(vec![SwiftCompileUnit {
+            directory: "/tmp".into(),
+            command: "/usr/bin/swiftc /tmp/App.swift".into(),
+            files: vec!["/tmp/App.swift".into()],
+            file_lists: vec![],
+        }]);
+
+        let merged = existing.merged_with(incremental);
+        assert!(merged.query(Path::new("/tmp/Dep.swift")).is_some());
+        assert!(merged.query(Path::new("/tmp/App.swift")).is_some());
+    }
+
+    #[test]
+    fn query_or_infer_reuses_neighboring_swift_flags() {
+        let temp = tempdir().unwrap();
+        let sources = temp.path().join("Sources");
+        fs::create_dir_all(&sources).unwrap();
+        let existing = sources.join("Existing.swift");
+        let new_file = sources.join("New.swift");
+        fs::write(&existing, "struct Existing {}").unwrap();
+        fs::write(&new_file, "struct New {}").unwrap();
+
+        let db = CompileDb::new(vec![SwiftCompileUnit {
+            directory: temp.path().display().to_string(),
+            command: format!(
+                "/usr/bin/swiftc -working-directory {} {}",
+                temp.path().display(),
+                existing.display()
+            ),
+            files: vec![existing.display().to_string()],
+            file_lists: vec![],
+        }]);
+
+        let (args, workdir) = db.query_or_infer(&new_file).unwrap();
+        let expected = new_file.canonicalize().unwrap().display().to_string();
+        assert!(args.contains(&expected));
+        assert_eq!(workdir, temp.path().display().to_string());
+    }
+
 }

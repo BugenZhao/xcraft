@@ -143,18 +143,62 @@ fn tuist_generate(ws: &Workspace) -> Result<Workspace> {
             .arg(dir),
     )?;
 
-    // Find the generated .xcworkspace in the project directory.
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.extension().is_some_and(|ext| ext == "xcworkspace") {
-            return Ok(Workspace {
-                path,
-                ws_type: WorkspaceType::Xcode,
-            });
-        }
+    if let Some(path) = find_generated_xcode_workspace(dir)? {
+        return Ok(Workspace {
+            path,
+            ws_type: WorkspaceType::Xcode,
+        });
     }
     bail!(
         "no .xcworkspace found after tuist generate in {}",
         dir.display()
     )
+}
+
+fn find_generated_xcode_workspace(dir: &Path) -> Result<Option<PathBuf>> {
+    let mut project_workspaces = Vec::new();
+    let mut top_level_workspaces = Vec::new();
+
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|ext| ext == "xcodeproj") {
+            let candidate = path.join("project.xcworkspace");
+            if candidate.exists() {
+                project_workspaces.push(candidate);
+            }
+            continue;
+        }
+        if path.extension().is_some_and(|ext| ext == "xcworkspace") {
+            top_level_workspaces.push(path);
+        }
+    }
+
+    project_workspaces.sort();
+    top_level_workspaces.sort();
+    Ok(project_workspaces
+        .into_iter()
+        .next()
+        .or_else(|| top_level_workspaces.into_iter().next()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::find_generated_xcode_workspace;
+
+    #[test]
+    fn prefers_project_workspace_for_generated_tuist_projects() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("App.xcworkspace")).unwrap();
+        fs::create_dir_all(dir.path().join("App.xcodeproj").join("project.xcworkspace")).unwrap();
+
+        let selected = find_generated_xcode_workspace(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            selected,
+            dir.path().join("App.xcodeproj").join("project.xcworkspace")
+        );
+    }
 }
