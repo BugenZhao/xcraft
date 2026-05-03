@@ -3,6 +3,7 @@ mod build;
 mod cache;
 mod cmd;
 mod destination;
+mod export;
 mod launch;
 mod scheme;
 mod util;
@@ -84,6 +85,9 @@ enum Commands {
     /// Build and run the project
     Launch(cmd::launch::LaunchArgs),
 
+    /// Archive and export an IPA
+    Export(cmd::export::ExportArgs),
+
     /// Build Server Protocol integration (xcode-build-server)
     Bsp {
         #[command(subcommand)]
@@ -114,6 +118,7 @@ fn main() -> Result<()> {
         Commands::Build(args) => cmd::cmd_build(args),
         Commands::Clean(args) => cmd::cmd_clean(args),
         Commands::Launch(args) => cmd::cmd_launch(args),
+        Commands::Export(args) => cmd::cmd_export(args),
         Commands::Bsp { command } => match command {
             BspCommands::Configure(args) => cmd::cmd_bsp_config(args),
             BspCommands::Serve(args) => cmd::cmd_bsp_serve(args),
